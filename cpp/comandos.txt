@@ -1,0 +1,3 @@
+g++ main.cpp cargar_simpsons.cpp mnist.cpp -o programa
+
+g++ -O3 -march=native main.cpp cargar_simpsons.cpp mnist.cpp -o programa
