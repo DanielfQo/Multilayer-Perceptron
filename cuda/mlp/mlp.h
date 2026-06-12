@@ -56,7 +56,9 @@ public:
     MLP& operator=(const MLP&) = delete;
 
     std::vector<float> forward(const std::vector<float>& input);
+    void forward_device(float* d_input_ptr);
     void backward(const std::vector<float>& expected_output);
+    void backward_device(float* d_expected_ptr);
     void accumulate_gradients();
     void update_weights(int batch_size);
 
