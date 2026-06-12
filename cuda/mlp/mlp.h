@@ -29,8 +29,9 @@ struct Layer{
 };
 
 #include "initializers.h"
+#include "loss_functions.cuh"
 
-template <typename Activation>
+template <typename Activation, typename Loss = MSE>
 class MLP{
 private:
     std::vector<int> topology;

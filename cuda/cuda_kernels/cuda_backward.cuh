@@ -1,8 +1,9 @@
 #pragma once
 
 #include "activations.cuh"
+#include "loss_functions.cuh"
 
-template <typename Activation>
+template <typename Activation, typename Loss>
 void cuda_backward_output(
     const float* d_a,
     const float* d_expected,

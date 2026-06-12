@@ -6,7 +6,7 @@
 #define TILE_SIZE 256 // 
 #endif
 
-template <typename Activation>
+template <typename Activation, typename Loss>
 __global__
 void output_delta_kernel(
     const float* a,
@@ -18,7 +18,8 @@ void output_delta_kernel(
     int i = blockIdx.x * blockDim.x + threadIdx.x;
     if (i < output_size){
         Activation act;
-        float error = a[i] - expected[i];
+        Loss loss_fn;
+        float error = loss_fn.derivative(a[i], expected[i]);
         deltas[i] = error * act.derivative(z[i]);
     }
 }
@@ -90,7 +91,7 @@ void accumulate_gradients_kernel(
     }
 }
 
-template <typename Activation>
+template <typename Activation, typename Loss>
 void cuda_backward_output(
     const float* d_a,
     const float* d_expected,
@@ -100,7 +101,7 @@ void cuda_backward_output(
 
     int threads = TILE_SIZE;
     int blocks = (output_size + threads - 1) / threads;
-    output_delta_kernel<Activation><<<blocks, threads>>>(d_a, d_expected, d_z, d_deltas, output_size);
+    output_delta_kernel<Activation, Loss><<<blocks, threads>>>(d_a, d_expected, d_z, d_deltas, output_size);
 }
 
 template <typename Activation>
@@ -131,7 +132,7 @@ void cuda_accumulate_gradients(
 }
 
 // Instanciacion explicita para las funciones de activacion soportadas
-template void cuda_backward_output<Sigmoid>(
+template void cuda_backward_output<Sigmoid, MSE>(
     const float* d_a,
     const float* d_expected,
     const float* d_z,
@@ -139,7 +140,23 @@ template void cuda_backward_output<Sigmoid>(
     int output_size
 );
 
-template void cuda_backward_output<ReLU>(
+template void cuda_backward_output<Sigmoid, CrossEntropy>(
+    const float* d_a,
+    const float* d_expected,
+    const float* d_z,
+    float* d_deltas,
+    int output_size
+);
+
+template void cuda_backward_output<ReLU, MSE>(
+    const float* d_a,
+    const float* d_expected,
+    const float* d_z,
+    float* d_deltas,
+    int output_size
+);
+
+template void cuda_backward_output<ReLU, CrossEntropy>(
     const float* d_a,
     const float* d_expected,
     const float* d_z,
