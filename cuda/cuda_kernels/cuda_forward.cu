@@ -1,87 +1,92 @@
-#include <cuda_runtime.h>
 #include "cuda_forward.cuh"
+#include <cuda_runtime.h>
 
-#include <math.h>
+#ifndef TILE_SIZE
+#define TILE_SIZE 256
+#endif
 
-__device__
-float relu(float x)
-{
-    return x > 0.0f ? x : 0.0f;
-}
-
+template <typename Activation>
 __global__
-void forward_kernel_shared(
+void forward_kernel(
     const float* __restrict__ weights,
     const float* __restrict__ biases,
     const float* __restrict__ input,
     float* output,
+    float* z_values,
     int input_size,
     int output_size){
+        
     int neuron = blockIdx.x * blockDim.x + threadIdx.x;
-
-    if (neuron >= output_size)
-        return;
-
-    float sum = 0.0f;
+    int tx = threadIdx.x;
 
     __shared__ float s_input[TILE_SIZE];
 
-    for (int tile = 0; tile < input_size; tile += TILE_SIZE)
-    {
-        int idx = tile + threadIdx.x;
+    float sum = 0.0f;
 
-        if (idx < input_size)
-            s_input[threadIdx.x] = input[idx];
-        else
-            s_input[threadIdx.x] = 0.0f;
+    for (int j_start = 0; j_start < input_size; j_start += TILE_SIZE) {
+        int input_idx = j_start + tx;
+        if (input_idx < input_size) {
+            s_input[tx] = input[input_idx];
+        } else {
+            s_input[tx] = 0.0f;
+        }
 
         __syncthreads();
 
-        for (int j = 0; j < TILE_SIZE; j++)
-        {
-            int global_j = tile + j;
-
-            if (global_j < input_size)
-            {
-                sum += weights[neuron * input_size + global_j] * s_input[j];
+        if (neuron < output_size) {
+            int limit = (input_size - j_start < TILE_SIZE) ? (input_size - j_start) : TILE_SIZE;
+            int weight_row_offset = neuron * input_size + j_start;
+            for (int j = 0; j < limit; j++) {
+                sum += weights[weight_row_offset + j] * s_input[j];
             }
         }
 
         __syncthreads();
     }
 
-    sum += biases[neuron];
-
-    output[neuron] = relu(sum);
+    if (neuron < output_size) {
+        sum += biases[neuron];
+        if (z_values) {
+            z_values[neuron] = sum;
+        }
+        Activation activation;
+        output[neuron] = activation(sum);
+    }
 }
 
+template <typename Activation>
 void cuda_forward_layer(
-    const float* h_weights,
-    const float* h_biases,
-    const float* h_input,
-    float* h_output,
+    const float* d_weights,
+    const float* d_biases,
+    const float* d_input,
+    float* d_output,
+    float* d_z, 
     int input_size,
     int output_size){
-    float *d_w, *d_b, *d_x, *d_y;
-
-    cudaMalloc(&d_w, input_size * output_size * sizeof(float));
-    cudaMalloc(&d_b, output_size * sizeof(float));
-    cudaMalloc(&d_x, input_size * sizeof(float));
-    cudaMalloc(&d_y, output_size * sizeof(float));
-
-    cudaMemcpy(d_w, h_weights, input_size * output_size * sizeof(float), cudaMemcpyHostToDevice);
-    cudaMemcpy(d_b, h_biases, output_size * sizeof(float), cudaMemcpyHostToDevice);
-    cudaMemcpy(d_x, h_input, input_size * sizeof(float), cudaMemcpyHostToDevice);
 
     int threads = TILE_SIZE;
     int blocks = (output_size + threads - 1) / threads;
 
-    forward_kernel_shared<<<blocks, threads>>>(d_w, d_b, d_x, d_y,input_size, output_size);
-
-    cudaMemcpy(h_output, d_y, output_size * sizeof(float), cudaMemcpyDeviceToHost);
-
-    cudaFree(d_w);
-    cudaFree(d_b);
-    cudaFree(d_x);
-    cudaFree(d_y);
+    forward_kernel<Activation><<<blocks, threads>>>(d_weights, d_biases, d_input, d_output, d_z, input_size, output_size);
 }
+
+// Instanciacion explicita para las funciones de activacion soportadas
+template void cuda_forward_layer<Sigmoid>(
+    const float* d_weights,
+    const float* d_biases,
+    const float* d_input,
+    float* d_output,
+    float* d_z, 
+    int input_size,
+    int output_size
+);
+
+template void cuda_forward_layer<ReLU>(
+    const float* d_weights,
+    const float* d_biases,
+    const float* d_input,
+    float* d_output,
+    float* d_z, 
+    int input_size,
+    int output_size
+);
